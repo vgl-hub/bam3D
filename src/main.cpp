@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <getopt.h>
+#include <unordered_map>
 
 #include "log.h"
 #include "global.h"
@@ -15,6 +16,7 @@
 #include <main.hpp>
 
 std::string version = "0.0.1";
+std::string toolName = "mytool";
 
 std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now(); // immediately start the clock when the program is run
 
@@ -28,6 +30,14 @@ std::mutex mtx;
 ThreadPool<std::function<bool()>> threadPool;
 Log lg;
 std::vector<Log> logs;
+
+void printHelp() {
+	printf("%s [command]\n", toolName.c_str());
+	printf("\nOptions:\n");
+	printf("-v --version software version.\n");
+	printf("--cmd print $0 to stdout.\n");
+	exit(0);
+}
 
 std::string getArgs(char* optarg, unsigned int argc, char **argv) {
     
@@ -62,11 +72,9 @@ int main(int argc, char **argv) {
     
     //bool isPipe = false; // to check if input is from pipe
     
-    if (argc == 1) { // mytool with no arguments
-            
-        printf("mytool [command]\n-h for additional help.\n");
+    if (argc == 1) { // tool name with no arguments
+        printf("%s [command]\n-h for additional help.\n", toolName.c_str());
         exit(0);
-        
     }
     
     static struct option long_options[] = { // struct mapping long options
@@ -144,15 +152,11 @@ int main(int argc, char **argv) {
                         printHelp();
                         break;
                     case 'v': // software version
-                        printf("mytool v%s\n", version.c_str());
+                        printf("%s v%s\n", toolName.c_str(), version.c_str());
                         printf("Giulio Formenti giulio.formenti@gmail.com\n");
                         exit(0);
                     case 'h': // help
-                        printf("mytool [command]\n");
-                        printf("\nOptions:\n");
-                        printf("-v --version software version.\n");
-                        printf("--cmd print $0 to stdout.\n");
-                        exit(0);
+						printHelp();
                 }
                 
                 if    (argc == 2 || // handle various cases in which the output should include summary stats
