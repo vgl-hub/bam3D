@@ -45,13 +45,11 @@ struct PairStats {
     uint64_t read2 = 0;
 };
 
-enum class Maptype :uint8_t {M,N,U};
+enum class Maptype :uint8_t {N=0, U=1, M=2};
 
 struct QnameStats { 
 	Maptype type1;
 	Maptype type2;
-	uint16_t mapped_count1=0;
-	uint16_t mapped_count2=0;
 
 	uint64_t UU=0;
 	uint64_t RU=0;
@@ -113,7 +111,6 @@ inserire da termianle le statistiche che si vogliono fare e inizializzare solo l
 
 
 TO DO:
--statistiche pair types base
 -chiedere info
 -statistiche pair type più complesse
 -pushare le modifiche nel fork e sulla repo principale

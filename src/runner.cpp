@@ -44,41 +44,43 @@ void Runner::qname_group(bam1_t *bamdata,std::string &qname,std::vector<bam1_t*>
 }
 
 void Runner::qname_stats(std::vector<bam1_t*> &group){
-	qnameStats.mapped_count1=0;
-	qnameStats.mapped_count2=0;
+	uint8_t mapped_count1=0;
+	uint8_t mapped_count2=0;
+	Maptype a=qnameStats.type1;
+	Maptype b=qnameStats.type2;
+
+
 	for(bam1_t* rec:group){
 		if(rec->core.flag & BAM_FSUPPLEMENTARY) {continue;} //elimino i supplementari 
+		if((!rec->core.flag & BAM_FPAIRED)) {break;}// se non è una coppiaè inutile fare la statistica
 		if(rec->core.flag & BAM_FREAD1) {
-			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count1++;}
-			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count1++;} //dovrebbe essere il primary
+			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {mapped_count1++;}
+			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {mapped_count1++;} //dovrebbe essere il primary
 		}
 		if(rec->core.flag & BAM_FREAD2) {
-			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count2++;}
-			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count2++;}
+			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {mapped_count2++;}
+			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {mapped_count2++;}
 		}
 	}
 
-	if(qnameStats.mapped_count1==0){qnameStats.type1=Maptype::N;}
-	else if(qnameStats.mapped_count1==1){qnameStats.type1=Maptype::U;}
-	else if(qnameStats.mapped_count1>1) {qnameStats.type1=Maptype::M;}
+	a=(mapped_count1==0 ? Maptype::N :(mapped_count1==1 ? Maptype::U : Maptype::M));
+	b=(mapped_count2==0 ? Maptype::N :(mapped_count2==1 ? Maptype::U : Maptype::M));
 
-	if(qnameStats.mapped_count2==0){qnameStats.type2=Maptype::N;}
-	else if(qnameStats.mapped_count2==1){qnameStats.type2=Maptype::U;}
-	else if(qnameStats.mapped_count2>1) {qnameStats.type2=Maptype::M;}
+	if (static_cast<uint8_t>(a) < static_cast<uint8_t>(b)) { std::swap(a, b);} //raggruppo UM e MU perchè a sarà sempre M rispetto a U
 
-	if(qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::U) {++qnameStats.UU;}
-	if(qnameStats.type1==Maptype::M && qnameStats.type2==Maptype::M) {++qnameStats.MM;}
-	if(qnameStats.type1==Maptype::N && qnameStats.type2==Maptype::N) {++qnameStats.NN;}
+	if(a==Maptype::U && b==Maptype::U) ++qnameStats.UU;
+	if(a==Maptype::M && b==Maptype::M) ++qnameStats.MM;
+	if(a==Maptype::N && b==Maptype::N) ++qnameStats.NN;
 
-	if((qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::M)^(qnameStats.type2==Maptype::U && qnameStats.type1==Maptype::M)) {++qnameStats.MU;}//si può dividere MU da UM
-	if((qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::N)^(qnameStats.type2==Maptype::U && qnameStats.type1==Maptype::N)) {++qnameStats.NU;}
-	if((qnameStats.type1==Maptype::M && qnameStats.type2==Maptype::N)^(qnameStats.type2==Maptype::M && qnameStats.type1==Maptype::N)) {++qnameStats.NM;}
+	if(a==Maptype::M && b==Maptype::U) ++qnameStats.MU;
+	if(a==Maptype::U && b==Maptype::N) ++qnameStats.NU;
+	if(a==Maptype::M && b==Maptype::N) ++qnameStats.NM;
 
 }
 
 long double Runner::update_mean_tlen(long double prev_mean,std::uint64_t k, bam1_t* bamdata){  //<x>
     long double xk = std::abs((long double)bamdata->core.isize);  // TLEN del record
-    return (xk / k) + ((k - 1) / (long double)k) * prev_mean;
+    return (xk / k) + ((k - 1) / (long double)k) * prev_mean;									
 }
 
 long double Runner::update_quadratic_mean_tlen(long double prev_mean,std::uint64_t k, bam1_t* bamdata){ //<x^2> FORSE SBAGLIATA
@@ -255,7 +257,7 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 	if(userInput.hist_global){histo_global_distance(global_dist_count);}
 	if (userInput.hist_by_chrom){histo_chrom_distance(chrom_dist_count);}
 //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	pairStats.pairN=pairStats.pairN/2; //conto pairN solo con i read1? if(stats.pair1==stats.pair2) {lo divido} else {errore qualcosa non va nel file :/} //controllo sulle paia?
+	pairStats.pairN=pairStats.pairN/2; 
 	readStats.error_rate=error_rate(mismatched_bases,total_base);
 }
 
