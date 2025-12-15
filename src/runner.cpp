@@ -31,7 +31,7 @@ void Runner::qname_group(bam1_t *bamdata,std::string &qname,std::vector<bam1_t*>
 		group.push_back(bam_dup1(bamdata)); //duplica il bam1_t puntato da bamdata e ne salva il puntatore nel vettore
 
 	} else {
-		qname_stats(qname,group);
+		qname_stats(group);
 			
 		for (bam1_t* rec : group) { //per ogni puntatore in group
     		bam_destroy1(rec); // libera il bam1_t a cui il puntatore rec si riferisce
@@ -43,8 +43,37 @@ void Runner::qname_group(bam1_t *bamdata,std::string &qname,std::vector<bam1_t*>
 	} 
 }
 
-void Runner::qname_stats(std::string &qname, std::vector<bam1_t*> &group){
-//fare statistiche
+void Runner::qname_stats(std::vector<bam1_t*> &group){
+	qnameStats.mapped_count1=0;
+	qnameStats.mapped_count2=0;
+	for(bam1_t* rec:group){
+		if(rec->core.flag & BAM_FSUPPLEMENTARY) {continue;} //elimino i supplementari 
+		if(rec->core.flag & BAM_FREAD1) {
+			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count1++;}
+			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count1++;} //dovrebbe essere il primary
+		}
+		if(rec->core.flag & BAM_FREAD2) {
+			if(rec->core.flag & BAM_FSECONDARY && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count2++;}
+			if(!(rec->core.flag & BAM_FSECONDARY) && !(rec->core.flag & BAM_FUNMAP)) {qnameStats.mapped_count2++;}
+		}
+	}
+
+	if(qnameStats.mapped_count1==0){qnameStats.type1=Maptype::N;}
+	else if(qnameStats.mapped_count1==1){qnameStats.type1=Maptype::U;}
+	else if(qnameStats.mapped_count1>1) {qnameStats.type1=Maptype::M;}
+
+	if(qnameStats.mapped_count2==0){qnameStats.type2=Maptype::N;}
+	else if(qnameStats.mapped_count2==1){qnameStats.type2=Maptype::U;}
+	else if(qnameStats.mapped_count2>1) {qnameStats.type2=Maptype::M;}
+
+	if(qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::U) {++qnameStats.UU;}
+	if(qnameStats.type1==Maptype::M && qnameStats.type2==Maptype::M) {++qnameStats.MM;}
+	if(qnameStats.type1==Maptype::N && qnameStats.type2==Maptype::N) {++qnameStats.NN;}
+
+	if((qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::M)^(qnameStats.type2==Maptype::U && qnameStats.type1==Maptype::M)) {++qnameStats.MU;}//si può dividere MU da UM
+	if((qnameStats.type1==Maptype::U && qnameStats.type2==Maptype::N)^(qnameStats.type2==Maptype::U && qnameStats.type1==Maptype::N)) {++qnameStats.NU;}
+	if((qnameStats.type1==Maptype::M && qnameStats.type2==Maptype::N)^(qnameStats.type2==Maptype::M && qnameStats.type1==Maptype::N)) {++qnameStats.NM;}
+
 }
 
 long double Runner::update_mean_tlen(long double prev_mean,std::uint64_t k, bam1_t* bamdata){  //<x>
@@ -105,8 +134,6 @@ void Runner::histo_chrom_distance (std::map<uint32_t,std::unordered_map<uint64_t
 
 }
 
-
-
 void Runner::flag_inspector (bam1_t* bamdata) {
 	uint16_t flag= bamdata-> core.flag;
 
@@ -130,7 +157,7 @@ void Runner::flag_inspector (bam1_t* bamdata) {
 	if(flag & BAM_FPAIRED || flag & BAM_FPROPER_PAIR) {
 		++pairStats.pairN;
 
-		if(flag & BAM_FDUP) {++pairStats.duplicated;}
+		if(flag & BAM_FDUP) {++pairStats.duplicated;} //WARNING! se c'è solo una read1 ma segnata come duplicato così non la conto nelle rad (basta toglier l'else if)
 		else if (flag & BAM_FREAD1) { // così ne prendo solo una e non due non so se ha senso
 			++pairStats.read1;
 
@@ -168,7 +195,8 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 	std::map <uint32_t,std::unordered_map<uint64_t,uint64_t>> chrom_dist_count;
 	uint32_t chrom=0;
 	uint64_t dist=0;
-	//processHeader(bamHdr);
+	
+
 	
 	while(sam_read1(fp_in, bamHdr, bamdata)>0) {
 		pairStats.good_read1=false;
@@ -193,7 +221,7 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 			if(userInput.hist_by_chrom){	 //HISTO_CHROM_DATA
 				chrom=bamdata->core.tid;
 				dist=llabs(bamdata->core.pos - bamdata->core.mpos);
-				chrom_dist_count[chrom][dist]++;
+				++chrom_dist_count[chrom][dist];
 			}
 		}
 
@@ -219,7 +247,7 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 	}
 
 	if (qname_sorted && !group.empty()) {
-    	qname_stats(qname,group);
+    	qname_stats(group);
     	for (bam1_t *rec : group) bam_destroy1(rec);
     	group.clear();
 	}
@@ -249,6 +277,7 @@ void Runner::output(){
 	std::cout<<"mean_insert:"<<readStats.mean_insert<<std::endl; 
 	std::cout<<"insert SD:"<<sqrt(readStats.quadratic_mean-pow(readStats.mean_insert,2))<<std::endl; //rad(<x^2>-<x>^2)
 	std::cout<<"error_rate:"<<readStats.error_rate<<std::endl;
+	std::cout<<"UU"<<":"<<"MM"<<":"<<"NN"<<":"<<"UM"<<":"<<"UN"<<":"<<"NM"<<"\t"<<qnameStats.UU<<":"<<qnameStats.MM<<":"<<qnameStats.NN<<":"<<qnameStats.MU<<":"<<qnameStats.NU<<":"<<qnameStats.NM<<std::endl;
 }
 
 void Runner::run() {

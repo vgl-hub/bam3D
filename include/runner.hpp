@@ -45,11 +45,34 @@ struct PairStats {
     uint64_t read2 = 0;
 };
 
+enum class Maptype :uint8_t {M,N,U};
+
+struct QnameStats { 
+	Maptype type1;
+	Maptype type2;
+	uint16_t mapped_count1=0;
+	uint16_t mapped_count2=0;
+
+	uint64_t UU=0;
+	uint64_t RU=0;
+	uint64_t UR=0;
+	uint64_t WW=0;
+	uint64_t DD=0;
+	uint64_t MU=0;
+	uint64_t MM=0;
+	uint64_t MR=0;
+	uint64_t NM=0;
+	uint64_t NU=0;
+	uint64_t NR=0;
+	uint64_t NN=0;
+};
+
 class Runner {
     
     UserInputBam3D userInput;
 	ReadStats readStats;
 	PairStats pairStats;
+	QnameStats qnameStats;
     
 public:
     
@@ -59,7 +82,7 @@ public:
 	long double update_quadratic_mean_tlen(long double,uint64_t, bam1_t*);
 	double error_rate(uint64_t,uint64_t);
 	void qname_group(bam1_t*,std::string&,std::vector<bam1_t*> &);
-	void qname_stats(std::string&,std::vector<bam1_t*> &);
+	void qname_stats(std::vector<bam1_t*> &);
 	void flag_inspector(bam1_t*);
 	void histo_global_distance(std::unordered_map<uint64_t,uint64_t>&);
 	void histo_chrom_distance(std::map<uint32_t,std::unordered_map<uint64_t,uint64_t>>&); 
@@ -74,14 +97,27 @@ public:
 
 /*  
 DOMANDE:
--problema numero 1: se il mate di una coppia per un errore non è stato segnato la coppia è invalida ma non sapremo mai quale (forse con grandi numeri è inutile) 
+-se il mate di una coppia per un errore non è stato segnato la coppia è invalida ma non sapremo mai quale e non ha senso fare pairN/2(forse con grandi numeri è inutile) 
 -ma il pos e il pos del mate non hanno di mezzo la sequenza del frammento stesso? non dovrebbe essere pos dell'ultima base mappata del primo frammento e inizio del mate?
--
 
 DOMANDE Y:
--le mapped/e non sono delle primary o in generale di tutte? //risposto samtools
--mean insert è tra le coppie buone o tutti record in generale?
--i duplicati sono dei singoli read non delle paia, o l'averli calcolati con pairtools cambia la loro situa?
--error rate: è tra tutte le letture o solo le mapped? e si calcola con NM o con cigar?(NM non è sempre presente) //risposto samtools
--distanza minima sensata tra i read per p(s)
+-i duplicati. sono read doppie? se il file viene prima passato da markdup/picard la flag è segnata giusta? mi fido? se no dovrei fare una passata iniziale (fare il lavoro di markdup)
+-WW e R ,DD,parametri di calcolo
+
+MIGLIORAMENTI:
+-eliminare variabili globali (metterle come membri pivati della classe runner), sistemare le variabili!!
+inserire da termianle le statistiche che si vogliono fare e inizializzare solo le variabili che servono
+-file di output
+-file di imput(dove si spiega quali imput sono leciti e cosa fanno)
+-i pairN se non sono pari, controllo sulle statistiche per non rompere il tool !WARNING
+
+
+TO DO:
+-statistiche pair types base
+-chiedere info
+-statistiche pair type più complesse
+-pushare le modifiche nel fork e sulla repo principale
+-leggere info sul cluster
+-rendere parallelizzabile il codice
+-studiare python
 */
