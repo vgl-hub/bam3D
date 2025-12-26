@@ -43,28 +43,81 @@ void Runner::qname_group(bam1_t *bamdata,std::string &qname,std::vector<bam1_t*>
 	} 
 }
 
-void Runner::qname_stats(std::vector<bam1_t*> &group){
+//se le read partono uguali ma finiscono diverse lo considero un walk in ogni caso, anche pairtools dovrebbe fare così, se è un miglioramento si può pensare ad un'implementazione
+uint16_t Runner::Alignstarts(const bam1_t* b){//legge il cigar e riporta le basi segnate nel read a sinistra prima delle basi mappate
+	const uint32_t* cigar = bam_get_cigar(b);
+	uint16_t bases=0;
 
-	uint8_t r1 = 0, r2 = 0;
+	for (uint32_t i = 0; i < b->core.n_cigar; ++i) {
+        int8_t op  = bam_cigar_op(cigar[i]);//cigar operator character
+        int8_t len = bam_cigar_oplen(cigar[i]);//quante basi per lettera (es.50S)
+
+		if (op == BAM_CMATCH || op == BAM_CEQUAL || op == BAM_CDIFF) {break;}//inizia l'allineamento con M,X,=
+		if (op == BAM_CSOFT_CLIP || op == BAM_CINS) {bases+=len;}//sommo quante basi S e I ci sono prima che la read si allinei al riferimento
+	}
+	return bases;
+}
+
+void Runner::qname_stats(std::vector<bam1_t*> &group){
+	std::vector <bam1_t*> r1_side, r2_side;
+	std::vector <bam1_t*> *chim = nullptr;
+	std::vector <bam1_t*> *other=nullptr;
+	bool rescued =false;
+	bool R1=false;
+	bool R2=false;
+
+	bool cis=false;
+	bool facing=false;
+	bool distance=false;
 
 	uint8_t mapped_count1=0;
 	uint8_t mapped_count2=0;
 	Maptype a=qnameStats.type1=Maptype::N;
 	Maptype b=qnameStats.type2=Maptype::N; //così se esiste solo uno dei due read (anche se con flag paired attiva), lo mette a null;
-
+//////walked e rescued
 	for(bam1_t* rec:group){
 		if (rec->core.flag & BAM_FSECONDARY) continue; //rimangono solo i supplementary e i primary mappati
     	if (rec->core.flag & BAM_FUNMAP) continue;
 
-    	if (rec->core.flag & BAM_FREAD1) ++r1;
-    	if (rec->core.flag & BAM_FREAD2) ++r2;
+    	if (rec->core.flag & BAM_FREAD1) r1_side.push_back(rec);
+    	if (rec->core.flag & BAM_FREAD2) r2_side.push_back(rec);
 	}
 
-	if (r1>=2 || r2>=2) {
-		++qnameStats.WW; //da controllare eventuali rescued
+	if((r1_side.size()>=2 && r2_side.size()==1) || (r2_side.size()>=2 && r1_side.size()==1)){ 
+		if	(r1_side.size() == 2) {
+			chim = &r1_side;
+			other = &r2_side;
+			R1=true;
+		}else {
+			chim = &r2_side;
+			other = &r1_side;
+			R2=true;
+		}
+
+		if (Alignstarts((*chim)[0]) > Alignstarts((*chim)[1])) { //se partono dello stesso posto più è lunga la parte non allineata più mi avvicino alla ligazione
+			std::swap((*chim)[0], (*chim)[1]);///////non tanto chiaro
+		}//ora chim[0] è l'outer, [1]è l'inner e l'altro è automaticamente l'other
+
+		bool rev_i = (*chim)[1]->core.flag & BAM_FREVERSE;
+		bool rev_o = (*other)[0]->core.flag & BAM_FREVERSE;
+		//controlli 
+		if(((*chim)[1])->core.tid==((*other)[0])->core.tid) {cis=true;} 
+		if((!rev_i &&  rev_o && (*chim)[1]->core.pos <= (*other)[0]->core.pos) || ( rev_i && !rev_o && (*other)[0]->core.pos <= (*chim)[1]->core.pos)) {facing=true;}
+		if(llabs((*chim)[1]->core.pos - (*other)[0]->core.pos) <= 2000) {distance=true;}////di default 2000 pb
+
+		if(cis && facing && distance) {
+			rescued=true;
+		}else{
+			++qnameStats.WW; 
+			return;  
+		}
+	}
+	else if (r1_side.size()+r2_side.size()>3) {//Una molecola candidata WW viene rescued: se ha una sola ligazione reale, ma appare come walk per effetti geometrici/tecnici.
+		++qnameStats.WW; 
 		return;    
 	}
-
+	//svuotarlo perchè non erano walk ne cadidati ai walk
+//////pair stats
 	for(bam1_t* rec:group){
 		if(rec->core.flag & BAM_FSUPPLEMENTARY) {continue;} //elimino i supplementari 
 		if(!(rec->core.flag & BAM_FPAIRED)) {break;}// se non è una coppiaè inutile fare la statistica
@@ -81,6 +134,11 @@ void Runner::qname_stats(std::vector<bam1_t*> &group){
 	a=(mapped_count1==0 ? Maptype::N :(mapped_count1==1 ? Maptype::U : Maptype::M));
 	b=(mapped_count2==0 ? Maptype::N :(mapped_count2==1 ? Maptype::U : Maptype::M));
 
+	if(rescued && R1) {a=Maptype::R;}
+	if(rescued && R2) {b=Maptype::R;}
+
+	if(a==Maptype::U && b==Maptype::R) ++qnameStats.UR; //unico di cui importa l'ordine
+
 	if (static_cast<uint8_t>(a) < static_cast<uint8_t>(b)) { std::swap(a, b);} //raggruppo UM e MU perchè a sarà sempre M rispetto a U
 
 	if(a==Maptype::U && b==Maptype::U) ++qnameStats.UU;
@@ -91,10 +149,13 @@ void Runner::qname_stats(std::vector<bam1_t*> &group){
 	if(a==Maptype::U && b==Maptype::N) ++qnameStats.NU;
 	if(a==Maptype::M && b==Maptype::N) ++qnameStats.NM;
 
+	if(a==Maptype::R && b==Maptype::U) ++qnameStats.RU;
+	if(a==Maptype::R && b==Maptype::M) ++qnameStats.MR;
+	if(a==Maptype::R && b==Maptype::N) ++qnameStats.NR;
 }
-
+	
 long double Runner::update_mean_tlen(long double prev_mean,std::uint64_t k, bam1_t* bamdata){  //<x>
-    long double xk = std::abs((long double)bamdata->core.isize);  // TLEN del record
+    long double xk = std::abs((long double)bamdata->core.isize);  // TEN dLel record
     return (xk / k) + ((k - 1) / (long double)k) * prev_mean;									
 }
 
@@ -132,19 +193,16 @@ void Runner::histo_chrom_distance (std::map<uint32_t,std::unordered_map<uint64_t
 		return;
 	}
 	
-	myfile << "# distance\tcount\n";
+	myfile << "\n# chromosome" <<"\t"<<"distance"<<"\t"<<"counter"<< "\n";
+
 
 	for (auto i = chrom_dist_count.begin(); i != chrom_dist_count.end(); ++i) {
 
     	uint32_t chrom = i->first;
     	const auto& dist_map = i->second;
 
-    	// intestazione cromosoma
-    	myfile << "\n# chromosome\t" << i->first<< "\n";
-
-    	// ciclo sulle distanze di quel cromosoma
     	for (auto j = dist_map.begin(); j != dist_map.end(); ++j) {
-       	 myfile << j->first << "\t" << j->second << "\n";
+       	 myfile <<i->first<< "\t" << j->first << "\t" << j->second << "\n";
     	}
 	}
 	myfile.close();  
@@ -213,7 +271,6 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 	uint64_t dist=0;
 	
 
-	
 	while(sam_read1(fp_in, bamHdr, bamdata)>0) {
 		pairStats.good_read1=false;
 		pairStats.good_read2=false;
@@ -242,7 +299,7 @@ void Runner::processReads(samFile *fp_in, bam_hdr_t *bamHdr, bam1_t *bamdata) {
 		}
 
 		if (pairStats.good_read1 || pairStats.good_read2) { 
-			uint8_t* nm_ptr = bam_aux_get(bamdata, "NM");
+			uint8_t* nm_ptr = bam_aux_get(bamdata, "NM");//diff tra a read e il riferimento
     		uint64_t nm = nm_ptr ? bam_aux2i(nm_ptr) : 0;
 
     		mismatched_bases += nm;  
@@ -293,7 +350,8 @@ void Runner::output(){
 	std::cout<<"mean_insert:"<<readStats.mean_insert<<std::endl; 
 	std::cout<<"insert SD:"<<sqrt(readStats.quadratic_mean-pow(readStats.mean_insert,2))<<std::endl; //rad(<x^2>-<x>^2)
 	std::cout<<"error_rate:"<<readStats.error_rate<<std::endl;
-	std::cout<<"WW"<<":"<<"UU"<<":"<<"MM"<<":"<<"NN"<<":"<<"UM"<<":"<<"UN"<<":"<<"NM"<<"\t"<<qnameStats.WW<<":"<<qnameStats.UU<<":"<<qnameStats.MM<<":"<<qnameStats.NN<<":"<<qnameStats.MU<<":"<<qnameStats.NU<<":"<<qnameStats.NM<<std::endl;
+	std::cout<<"UU"<<":"<<"MM"<<":"<<"NN"<<":"<<"UM"<<":"<<"UN"<<":"<<"NM"<<"\t"<<qnameStats.UU<<":"<<qnameStats.MM<<":"<<qnameStats.NN<<":"<<qnameStats.MU<<":"<<qnameStats.NU<<":"<<qnameStats.NM<<std::endl;
+	std::cout<<"WW"<<":"<<"UR"<<":"<<"RU"<<":"<<"RN"<<":"<<"RM"<<"\t"<<qnameStats.WW<<":"<<qnameStats.UR<<":"<<qnameStats.RU<<":"<<qnameStats.NR<<":"<<qnameStats.MR<<std::endl;
 }
 
 void Runner::run() {

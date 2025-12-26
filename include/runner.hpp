@@ -45,7 +45,7 @@ struct PairStats {
     uint64_t read2 = 0;
 };
 
-enum class Maptype :uint8_t {N=0, U=1, M=2};
+enum class Maptype :uint8_t {N=0, U=1, M=2, R=3};
 
 struct QnameStats { 
 	Maptype type1;
@@ -79,6 +79,7 @@ public:
 	long double update_mean_tlen(long double,uint64_t, bam1_t*);
 	long double update_quadratic_mean_tlen(long double,uint64_t, bam1_t*);
 	double error_rate(uint64_t,uint64_t);
+	uint16_t Alignstarts(const bam1_t*);
 	void qname_group(bam1_t*,std::string&,std::vector<bam1_t*> &);
 	void qname_stats(std::vector<bam1_t*> &);
 	void flag_inspector(bam1_t*);
@@ -111,8 +112,8 @@ inserire da termianle le statistiche che si vogliono fare e inizializzare solo l
 
 
 TO DO:
--chiedere info
--statistiche pair type più complesse
+-statistiche pair type più complesse (provare e commentarle per problemi con la parallelizzazione)
+-plottare grafici da mostrare
 -pushare le modifiche nel fork e sulla repo principale
 -leggere info sul cluster
 -rendere parallelizzabile il codice
