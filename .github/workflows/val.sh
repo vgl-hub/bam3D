@@ -1,1 +1,1 @@
-build/bin/bam3D validateFiles
+build/bin/bam3D-validate validateFiles
