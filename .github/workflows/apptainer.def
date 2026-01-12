@@ -1,0 +1,47 @@
+Bootstrap: docker
+From: alpine:3.19
+
+%files
+    ./ /bam3D
+
+%post
+    apk add --no-cache \
+        build-base \
+        musl-dev \
+        zlib-dev \
+        zlib-static \
+        bzip2-dev \
+        bzip2-static \
+        xz-dev \
+        xz-static \
+        openssl-dev \
+        openssl-libs-static \
+        cmake \
+        git \
+        perl \
+        autoconf \
+        automake \
+        libtool \
+        linux-headers
+
+    # Build htslib from source
+    rm -rf /tmp/htslib
+    cd /tmp
+    git clone https://github.com/samtools/htslib.git
+    cd htslib
+    git submodule update --init --recursive
+    autoreconf -i
+    ./configure --disable-libcurl --disable-bz2 --enable-static --disable-shared
+    make -j$(nproc)
+    make install prefix=/usr
+
+    # Build your project statically
+    cd /bam3D
+    make clean
+    make -j$(nproc) static
+
+%labels
+    Author Margherita Tremolada
+
+%runscript
+    exec /bam3D/build/bin/bam3D "$@"

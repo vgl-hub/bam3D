@@ -1,0 +1,127 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+jobs:
+  create_release:
+    name: Create Release
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: bam3D ${{ github.ref }}
+        body: |
+          Changes in this Release
+        draft: false
+        prerelease: false
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+  add_resources:
+    needs: create_release
+    name: Add Resources
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+        include:
+        - os: macos-latest
+          OS_NAME: macOS
+        - os: ubuntu-latest
+          OS_NAME: linux
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+            submodules: recursive
+      - if: matrix.os == 'macos-latest'
+        name: Build
+        run: |
+          brew install openssl@3 htslib
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+          HTSLIB_PREFIX=$(brew --prefix htslib)
+
+          INCLUDE_DIR="-I$OPENSSL_PREFIX/include -I$HTSLIB_PREFIX/include"
+          LDFLAGS="-L$OPENSSL_PREFIX/lib -L$HTSLIB_PREFIX/lib"
+          
+          make CFLAGS="$INCLUDE_DIR" LDFLAGS="$LDFLAGS" head -j
+      - if: matrix.os == 'ubuntu-latest'
+        name: Set up Apptainer
+        uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: 1.3.6
+      - if: matrix.os == 'ubuntu-latest'
+        name: Build
+        run: |
+          sudo apt-get install libhts-dev
+          make all -j
+          apptainer build --fix-perms --ignore-fakeroot-command bam3D_static.sif .github/workflows/apptainer.def
+          apptainer exec --bind $(pwd):/out bam3D_static.sif cp /bam3D/build/bin/bam3D /out/bam3D_static_binary
+      - name: Zip-dynamic
+        uses: papeloto/action-zip@v1
+        with:
+          files: build/bin/bam3D
+          dest: dynamic.zip
+      - if: matrix.os == 'ubuntu-latest'
+        name: Zip-static
+        uses: papeloto/action-zip@v1
+        with:
+          files: bam3D_static_binary
+          dest: static.zip
+      - name: Add binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: dynamic.zip
+          asset_name: bam3D.${{ github.ref_name }}-${{matrix.OS_NAME}}.zip
+          asset_content_type: application/zip
+      - if: matrix.os == 'ubuntu-latest'
+        name: Add binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: static.zip
+          asset_name: bam3D.${{ github.ref_name }}-${{matrix.OS_NAME}}-static.zip
+          asset_content_type: application/zip
+
+  add_submodules:
+    needs: create_release
+    name: Source with submodules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+            submodules: recursive
+      - name: Zip
+        uses: papeloto/action-zip@v1
+        with:
+          files: .
+          dest: result.zip
+      - name: Add files
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: result.zip
+          asset_name: bam3D.${{ github.ref_name }}-with_submodules.zip
+          asset_content_type: application/zip
