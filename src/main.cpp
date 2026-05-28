@@ -13,6 +13,7 @@
 #include "functions.h"
 #include "threadpool.h"
 
+
 #include <runner.hpp>
 #include <main.hpp>
 
@@ -62,8 +63,7 @@ std::string getArgs(char* optarg, unsigned int argc, char **argv) {
     
 }
 
-int main(int argc, char **argv) {
-    
+int main(int argc, char **argv) {   
     short int c; // optarg
     short unsigned int pos_op = 1; // optional arguments
     
@@ -84,16 +84,13 @@ int main(int argc, char **argv) {
         {"cmd", no_argument, &cmd_flag, 1},
         {"version", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
+        {"single_read_stats", no_argument, 0, 's'},
+        {"pair_read_stats", no_argument, 0, 'p'},
         {"hist-global", no_argument, 0, 'g'},
         {"hist-chrom", no_argument, 0, 'm'},
         
         {0, 0, 0, 0}
     };
-    
-//    const static std::unordered_map<std::string,int> tools{
-//        {"tool1",1},
-//        {"tool2",2}
-//    };
     
     const static std::unordered_map<std::string,int> modes{
         {"parseBam",1},
@@ -114,7 +111,7 @@ int main(int argc, char **argv) {
                 
                 int option_index = 0;
                 
-                c = getopt_long(argc, argv, "-:b:vhgm",
+                c = getopt_long(argc, argv, "-:b:vhspgm",
                                 long_options, &option_index);
                 
                 if (c == -1) { // exit the loop if run out of options
@@ -160,6 +157,12 @@ int main(int argc, char **argv) {
 							}
 						}
 						break;
+                    case 's': // single read stats
+                        userInput.single_read_stats=true;
+                        break;
+                    case 'p': // pair read stats
+                        userInput.pair_read_stats=true;
+                        break;
                     case 'g': //histogram options
                     case 'm':
                         if(c=='g'){userInput.hist_global=true;}
@@ -197,9 +200,7 @@ int main(int argc, char **argv) {
         
     }
     
-//    std::cout<<"Invoking: "<<cmd<<std::endl;
-//    std::system(cmd.c_str());
-    
+
     Runner runner;
     threadPool.init(maxThreads); // initialize threadpool
     maxMem = (userInput.maxMem == 0 ? get_mem_total(3) * 0.9 : userInput.maxMem); // set memory limit
